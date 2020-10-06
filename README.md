@@ -57,8 +57,6 @@ Use this link to beautify the json file
 
 https://codebeautify.org
 
-
-
-
-
-
+#Evaluate the OPA policy on the Terraform plan
+opa eval --format pretty --explain=notes --data subnet.rego --input tfplan.json "data.terraform.analysis.score"
+opa eval --format pretty --explain=notes --data subnet.rego --input tfplan.json "data.terraform.analysis.authz"
