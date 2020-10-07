@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Metadata: 
+  License: Apache-2.0
+Description: 'AWS CloudFormation Sample Template Config: This template demonstrates
+  the usage of AWS Config resources. **WARNING** You will be billed for the AWS resources
+  used if you create a stack from this template.'
+Parameters:
+  DeliveryChannelExists:
+    Type: String
+    Description: 'Do you have an exisiting AWS Config delivery channel?'
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+  mailrecipeints:
+    Type: String
+    Description: 'Please provide your email id to receive notifications?'
+Conditions:
+  CreateDeliveryChannel: !Equals [ !Ref DeliveryChannelExists, 'false' ]
+Resources:
+  ConfigRecorder:
+    Type: AWS::Config::ConfigurationRecorder
+    Properties:
+      Name: default
+      RecordingGroup:
+        ResourceTypes: ['AWS::RDS::DBInstance']
+      RoleARN: !GetAtt [ConfigRole, Arn]
+  DeliveryChannel:
+    Condition: CreateDeliveryChannel
+    Type: AWS::Config::DeliveryChannel
+    Properties:
+      ConfigSnapshotDeliveryProperties:
+        DeliveryFrequency: One_Hour
+      S3BucketName: !Ref 'ConfigBucket'
+      SnsTopicARN: !Ref 'ConfigTopic'
+  ConfigBucket:
+    Type: AWS::S3::Bucket
+  ConfigTopic:
+    Type: AWS::SNS::Topic
+  ConfigTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Id: ConfigTopicPolicy
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: config.amazonaws.com
+          Action: SNS:Publish
+          Resource: '*'
+      Topics: [!Ref 'ConfigTopic']
+  RDSSubscription:
+    Type: 'AWS::SNS::Subscription'
+    Properties:
+      TopicArn: !Ref ConfigTopic
+      Endpoint: !Ref mailrecipeints
+      Protocol: email
+      DeliveryPolicy:
+        healthyRetryPolicy:
+          numRetries: 20
+          minDelayTarget: 10
+          maxDelayTarget: 30
+          numMinDelayRetries: 3
+          numMaxDelayRetries: 17
+          numNoDelayRetries: 0
+          backoffFunction: exponential
+  ConfigRule:
+    Type: 'AWS::Config::ConfigRule'
+    Properties:
+      ConfigRuleName: rds-instance-deletion-protection-enabled
+      Description: >-
+        A config rule that checks if an Amazon Relational Database Service
+        (Amazon RDS) cluster has deletion protection enabled. This rule is
+        NON_COMPLIANT if an RDS cluster does not have deletion protection
+        enabled.
+      Scope:
+        ComplianceResourceTypes:
+          - 'AWS::RDS::DBInstance'
+      Source:
+        Owner: AWS
+        SourceIdentifier: RDS_INSTANCE_DELETION_PROTECTION_ENABLED
+    DependsOn: ConfigRecorder
+  ConfigRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [config.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      ManagedPolicyArns: ['arn:aws:iam::aws:policy/service-role/AWSConfigRole']
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action: s3:GetBucketAcl
+            Resource: !Join ['', ['arn:aws:s3:::', !Ref 'ConfigBucket']]
+          - Effect: Allow
+            Action: s3:PutObject
+            Resource: !Join ['', ['arn:aws:s3:::', !Ref 'ConfigBucket', /AWSLogs/,
+                !Ref 'AWS::AccountId', /*]]
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+          - Effect: Allow
+            Action: config:Put*
+            Resource: '*'
